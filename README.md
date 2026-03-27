@@ -43,3 +43,34 @@ To compile the smart contract for the WebAssembly target:
 rustup target add wasm32-unknown-unknown
 cargo build --target wasm32-unknown-unknown --release
 ```
+
+## How to Use (Local Sandbox Simulation)
+
+You can interact with Küyfi Core locally to test its security constraints and circuit-breaker logic using the [Soroban CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup).
+
+**1. Simulate a Secure Deposit:**
+Triggers the `deposit` function, simulating a user funding the protection pool.
+```bash
+soroban contract invoke \
+  --wasm target/wasm32-unknown-unknown/release/kuyfi_core.wasm \
+  --id 1 \
+  -- \
+  deposit \
+  --from <USER_ADDRESS> \
+  --amount 500
+
+  soroban contract invoke \
+  --wasm target/wasm32-unknown-unknown/release/kuyfi_core.wasm \
+  --id 1 \
+  -- \
+  withdraw \
+  --to <USER_ADDRESS> \
+  --amount 200
+
+  soroban contract invoke \
+  --wasm target/wasm32-unknown-unknown/release/kuyfi_core.wasm \
+  --id 1 \
+  -- \
+  withdraw \
+  --to <ATTACKER_ADDRESS> \
+  --amount 9999999
