@@ -21,9 +21,29 @@ Mitigated threats include:
 * **Value Injection:** Logic constraints to prevent negative amount attacks.
 * **Liquidity Draining:** Pre-calculation validations ensuring withdrawal requests never exceed current balances.
 
+## How It Works
+
+Kuyfi Core exposes two public functions — `deposit` and `withdraw` — that manage per-address balances in on-chain persistent storage. Every call follows a strict **Read-Calculate-Save** pipeline:
+
+1. **Authenticate** — The caller's address is verified via `require_auth()`.
+2. **Validate** — The amount is rejected if it is zero or negative (`PoolError::NegativeAmount`).
+3. **Read** — The current balance is loaded from persistent storage (defaults to `0` for new addresses).
+4. **Calculate** — The new balance is computed using checked arithmetic (`checked_add` / `checked_sub`), returning `PoolError::MathOverflow` on overflow or `PoolError::InsufficientFunds` if a withdrawal exceeds the balance.
+5. **Save** — The updated balance is written back to storage.
+6. **Emit** — A `deposit` or `withdraw` event is published for off-chain consumers.
+
+### Error Reference
+
+| Error | Code | Trigger |
+|---|---|---|
+| `NotAuthorized` | 1 | Authentication failure |
+| `InsufficientFunds` | 2 | Withdrawal exceeds balance |
+| `NegativeAmount` | 3 | Amount is zero or negative |
+| `MathOverflow` | 4 | Arithmetic overflow/underflow |
+
 ## Security Audit (SAST)
 
-Kuyfi Core has undergone Static Application Security Testing (SAST) using CoinFabrik's cargo-scout-audit.
+Kuyfi Core has undergone Static Application Security Testing (SAST) using CoinFabrik's `cargo-scout-audit`.
 
 **Latest Audit Results:**
 * Critical Vulnerabilities: 0
@@ -35,42 +55,74 @@ Kuyfi Core has undergone Static Application Security Testing (SAST) using CoinFa
 
 The contract emits cryptographic events (`deposit` and `withdraw`). This allows off-chain heuristic monitors and NIDS (Network Intrusion Detection Systems) to listen to the blockchain in real-time and trigger automated security responses.
 
-## Build Instructions
+## Getting Started
 
-To compile the smart contract for the WebAssembly target:
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (edition 2021+)
+- The `wasm32-unknown-unknown` target
+- [Soroban CLI](https://soroban.stellar.org/docs/getting-started/setup)
 
 ```bash
+# Add the WebAssembly target (if not already installed)
 rustup target add wasm32-unknown-unknown
+
+# Install the Soroban CLI
+cargo install --locked soroban-cli
+```
+
+### Build
+
+```bash
 cargo build --target wasm32-unknown-unknown --release
 ```
 
-## How to Use (Local Sandbox Simulation)
+The compiled `.wasm` binary will be at:
+```text
+target/wasm32-unknown-unknown/release/kuyfi_core.wasm
+```
 
-You can interact with Küyfi Core locally to test its security constraints and circuit-breaker logic using the [Soroban CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup).
+### Deploy (Testnet)
 
-**1. Simulate a Secure Deposit:**
-Triggers the `deposit` function, simulating a user funding the protection pool.
 ```bash
+# Configure the Soroban CLI for testnet
+soroban network add testnet \
+  --rpc-url [https://soroban-testnet.stellar.org:443](https://soroban-testnet.stellar.org:443) \
+  --network-passphrase "Test SDF Network ; September 2015"
+
+# Generate a test identity and fund it
+soroban keys generate alice
+soroban keys fund alice --network testnet
+
+# Deploy the contract
+soroban contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/kuyfi_core.wasm \
+  --source alice \
+  --network testnet
+```
+
+The deploy command returns a **Contract ID** — save it for the next step.
+
+### Interact
+
+```bash
+# Deposit 1000 units
 soroban contract invoke \
-  --wasm target/wasm32-unknown-unknown/release/kuyfi_core.wasm \
-  --id 1 \
-  -- \
-  deposit \
-  --from <USER_ADDRESS> \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- deposit \
+  --from alice \
+  --amount 1000
+
+# Withdraw 500 units
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source alice \
+  --network testnet \
+  -- withdraw \
+  --to alice \
   --amount 500
+```
 
-  soroban contract invoke \
-  --wasm target/wasm32-unknown-unknown/release/kuyfi_core.wasm \
-  --id 1 \
-  -- \
-  withdraw \
-  --to <USER_ADDRESS> \
-  --amount 200
-
-  soroban contract invoke \
-  --wasm target/wasm32-unknown-unknown/release/kuyfi_core.wasm \
-  --id 1 \
-  -- \
-  withdraw \
-  --to <ATTACKER_ADDRESS> \
-  --amount 9999999
+Replace `<CONTRACT_ID>` with the ID returned during deployment.
